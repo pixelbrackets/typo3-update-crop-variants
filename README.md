@@ -38,6 +38,8 @@ Use `--updateRatios` to also update variants where the stored ratio no longer ma
 ratio. Only mismatched crops are overwritten with a centered default - crops that already match
 the TCA ratio are preserved.
 
+The command defaults to outputting a summary only. Add `-v` to see per-item details.
+
 ```bash
 # Scenario: Add new mobile crop variant to a specific field
 vendor/bin/typo3 cleanup:updatecropvariants tt_content image
@@ -61,7 +63,7 @@ vendor/bin/typo3 cleanup:updatecropvariants tx_news_domain_model_news
 
 The `cleanup:updatecropvariants` command and the `--updateRatios` option are safe to add to a
 deployment script (e.g., a projects `composer.json` hook) or scheduler task - each run only
-changes which do not yet match the TCA configuration.
+changes what does not yet match the TCA configuration.
 
 Only the `--forceOverride` flag is destructive and not safe for unsupervised execution.
 

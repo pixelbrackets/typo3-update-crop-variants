@@ -35,6 +35,8 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 * Use --updateRatios to also update existing variants where the stored ratio no longer matches the TCA ratio.
 * Only mismatched crops are overwritten with a centered default - crops that already match are preserved.
 *
+* The command defaults to outputting a summary only. Use -v to see per-item details.
+*
 * Usage:
 *   # Scenario: Add new mobile crop variant to specific field image in tt_content
 *   vendor/bin/typo3 cleanup:updatecropvariants tt_content image
@@ -370,7 +372,9 @@ class UpdateCropVariantsCommand extends Command
         );
 
         if (empty($variantsToGenerate)) {
-            $output->writeln('  #' . $reference['uid'] . ' - no update needed');
+            if ($output->isVerbose()) {
+                $output->writeln('  #' . $reference['uid'] . ' - no update needed');
+            }
             return false;
         }
 
@@ -382,7 +386,9 @@ class UpdateCropVariantsCommand extends Command
 
         $this->saveCropConfiguration($reference['uid'], $updatedCropConfiguration);
 
-        $output->writeln('<info>  #' . $reference['uid'] . ' - updated (' . count($variantsToGenerate) . ' variant(s))</info>');
+        if ($output->isVerbose()) {
+            $output->writeln('<info>  #' . $reference['uid'] . ' - updated (' . count($variantsToGenerate) . ' variant(s))</info>');
+        }
 
         return true;
     }
