@@ -1,0 +1,60 @@
+{
+    "name": "pixelbrackets/typo3-update-crop-variants",
+    "description": "TYPO3 command to add missing crop variants and optionally regenerate changed ratios in file references",
+    "license": "GPL-2.0-or-later",
+    "type": "typo3-cms-extension",
+    "authors": [
+        {
+            "name": "Dan Kleine",
+            "email": "dan.kleine@xima.de",
+            "homepage": "https://pixelbrackets.de",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "php": ">=8.1",
+        "typo3/cms-core": "^12.4 || ^13.4 || ^14.0"
+    },
+    "require-dev": {
+        "armin/editorconfig-cli": "^1.0 || ^2.0",
+        "friendsofphp/php-cs-fixer": "^3.52",
+        "roave/security-advisories": "dev-latest",
+        "saschaegerer/phpstan-typo3": "^1.0 || ^2.0 || ^3.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Pixelbrackets\\UpdateCropVariants\\": "src/"
+        }
+    },
+    "scripts": {
+        "check": [
+            "@editorconfig:lint:check",
+            "@php:lint:check",
+            "@php:stan:check",
+            "@php:fixer:check"
+        ],
+        "fix": [
+            "@editorconfig:lint",
+            "@php:fixer",
+            "@php:stan"
+        ],
+        "editorconfig:lint": "ec --strict --fix -n",
+        "editorconfig:lint:check": "ec --strict -n",
+        "php:fixer": "php vendor/bin/php-cs-fixer --config=php-cs-fixer.php fix",
+        "php:fixer:check": "php vendor/bin/php-cs-fixer --config=php-cs-fixer.php fix --dry-run --format=checkstyle > php-cs-fixer.xml || true",
+        "php:lint:check": "find . -name '*.php' ! -path './vendor/*' -print0 | xargs -0 -n 1 -P 4 php -l",
+        "php:stan": "php vendor/bin/phpstan --generate-baseline=phpstan-baseline.neon --allow-empty-baseline --memory-limit=2G",
+        "php:stan:check": "phpstan --no-progress --error-format=checkstyle > phpstan.xml || true"
+    },
+    "extra": {
+        "typo3/cms": {
+            "extension-key": "update_crop_variants"
+        }
+    },
+    "config": {
+        "allow-plugins": {
+            "typo3/cms-composer-installers": false,
+            "typo3/class-alias-loader": true
+        }
+    }
+}

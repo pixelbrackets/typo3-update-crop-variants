@@ -1,0 +1,6 @@
+services:
+  Pixelbrackets\UpdateCropVariants\Command\UpdateCropVariantsCommand:
+    tags:
+      - name: console.command
+        command: 'cleanup:updatecropvariants'
+        description: 'Updates crop variants for image fields across the system'

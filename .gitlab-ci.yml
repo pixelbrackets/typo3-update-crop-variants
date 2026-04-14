@@ -1,0 +1,9 @@
+check:
+  image: php:8.3
+  before_script:
+    - apt-get update -q && apt-get install -qy git unzip curl libicu-dev
+    - docker-php-ext-install intl
+    - curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+  script:
+    - composer install --no-progress
+    - composer check
