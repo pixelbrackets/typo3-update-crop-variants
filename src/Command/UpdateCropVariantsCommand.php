@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Pixelbrackets\UpdateCropVariants\Command;
 
+use Doctrine\DBAL\Exception;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
@@ -131,7 +132,9 @@ class UpdateCropVariantsCommand extends Command
 
     /**
     * Process a single field
+    *
     * @return array<string, int>
+    * @throws Exception
     */
     private function processField(string $table, string $field, bool $updateRatios, bool $forceOverride, OutputInterface $output): array
     {
@@ -243,11 +246,7 @@ class UpdateCropVariantsCommand extends Command
     {
         $grouped = [];
 
-        $typeField = match ($table) {
-            'tt_content' => 'CType',
-            'pages' => 'doktype',
-            default => null
-        };
+        $typeField = $GLOBALS['TCA'][$table]['ctrl']['type'] ?? null;
 
         foreach ($fileReferences as $reference) {
             $typeValue = $typeField !== null ? ($reference[$typeField] ?? null) : null;
@@ -263,6 +262,11 @@ class UpdateCropVariantsCommand extends Command
     }
 
     /**
+    * Get crop variants from TCA for a field without type-specific overrides.
+    *
+    * Returns the global cropVariants config defined directly on the field,
+    * used as fallback when no type-specific TCA override exists.
+    *
     * @return array<string, mixed>|null
     */
     private function getCropVariantsFromTCA(string $table, string $field): ?array
@@ -277,7 +281,7 @@ class UpdateCropVariantsCommand extends Command
     }
 
     /**
-    * Get crop variants from TCA for a specific type (e.g., CType, doktype)
+    * Get crop variants from TCA for a specific type (e.g. CType, doktype) of a table
     *
     * @param string $table Table name (e.g., tt_content, pages)
     * @param string $field Field name (e.g., image, media)
@@ -290,7 +294,16 @@ class UpdateCropVariantsCommand extends Command
             return $this->getCropVariantsFromTCA($table, $field);
         }
 
-        $typeConfig = $GLOBALS['TCA'][$table]['types'][$type] ?? null;
+        $tcaTypes = $GLOBALS['TCA'][$table]['types'] ?? [];
+        $typeConfig = $tcaTypes[$type] ?? null;
+
+        // Fall back to TCA default type »0« when the type value has no matching TCA key
+        // Extbase extensions may store a PHP class name in the type field instead
+        // of a TCA key, so type »0« is used as a safe fallback (same as TYPO3 core does)
+        if ($typeConfig === null && isset($tcaTypes[0])) {
+            $typeConfig = $tcaTypes[0];
+        }
+
         if ($typeConfig !== null) {
             $overrideCropVariants = $typeConfig['columnsOverrides'][$field]['config']['overrideChildTca']['columns']['crop']['config']['cropVariants'] ?? null;
             if ($overrideCropVariants !== null) {
@@ -302,7 +315,10 @@ class UpdateCropVariantsCommand extends Command
     }
 
     /**
+    * Fetch all file references for a table field and group references by type if available
+    *
     * @return array<int, array<string, mixed>>
+    * @throws Exception
     */
     private function getFileReferences(string $table, string $field): array
     {
@@ -324,28 +340,23 @@ class UpdateCropVariantsCommand extends Command
                 $queryBuilder->expr()->eq('fieldname', $queryBuilder->createNamedParameter($field))
             );
 
-        if ($table === 'tt_content') {
+        $typeField = $GLOBALS['TCA'][$table]['ctrl']['type'] ?? null;
+        if ($typeField !== null) {
             $query->leftJoin(
                 'r',
-                'tt_content',
+                $table,
                 'p',
                 $queryBuilder->expr()->eq('p.uid', $queryBuilder->quoteIdentifier('r.uid_foreign'))
             );
-            $query->addSelect('p.CType');
-        } elseif ($table === 'pages') {
-            $query->leftJoin(
-                'r',
-                'pages',
-                'p',
-                $queryBuilder->expr()->eq('p.uid', $queryBuilder->quoteIdentifier('r.uid_foreign'))
-            );
-            $query->addSelect('p.doktype');
+            $query->addSelect('p.' . $typeField);
         }
 
         return $query->executeQuery()->fetchAllAssociative();
     }
 
     /**
+    * Update a single file reference with new crop variants
+    *
     * @param array<string, mixed> $reference
     * @param array<string, mixed> $cropVariantsConfig
     */
@@ -394,6 +405,8 @@ class UpdateCropVariantsCommand extends Command
     }
 
     /**
+    * Fetch the actual file object in order to calculate the crop area later on
+    *
     * @param array<string, mixed> $reference
     */
     private function getFile(array $reference): ?File
