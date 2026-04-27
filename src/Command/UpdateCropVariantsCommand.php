@@ -133,6 +133,11 @@ class UpdateCropVariantsCommand extends Command
     /**
     * Process a single field
     *
+    * @param string $table Table name
+    * @param string $field Field name
+    * @param bool $updateRatios Whether to reset variants with mismatched ratios
+    * @param bool $forceOverride Whether to reset all variants regardless of existing values
+    * @param OutputInterface $output Console output
     * @return array<string, int>
     * @throws Exception
     */
@@ -317,6 +322,8 @@ class UpdateCropVariantsCommand extends Command
     /**
     * Fetch all file references for a table field and group references by type if available
     *
+    * @param string $table Table name
+    * @param string $field Field name
     * @return array<int, array<string, mixed>>
     * @throws Exception
     */
@@ -357,8 +364,11 @@ class UpdateCropVariantsCommand extends Command
     /**
     * Update a single file reference with new crop variants
     *
-    * @param array<string, mixed> $reference
-    * @param array<string, mixed> $cropVariantsConfig
+    * @param array<string, mixed> $reference File reference row from sys_file_reference
+    * @param array<string, mixed> $cropVariantsConfig Crop variants configuration from TCA
+    * @param bool $updateRatios Whether to reset variants with mismatched ratios
+    * @param bool $forceOverride Whether to reset all variants regardless of existing values
+    * @param OutputInterface $output Console output
     */
     private function updateFileReference(
         array $reference,
@@ -407,7 +417,7 @@ class UpdateCropVariantsCommand extends Command
     /**
     * Fetch the actual file object in order to calculate the crop area later on
     *
-    * @param array<string, mixed> $reference
+    * @param array<string, mixed> $reference File reference row from sys_file_reference
     */
     private function getFile(array $reference): ?File
     {
@@ -422,6 +432,9 @@ class UpdateCropVariantsCommand extends Command
     }
 
     /**
+    * Parse crop areas from the stored JSON in sys_file_reference.crop
+    *
+    * @param string|null $cropJson JSON string from sys_file_reference.crop
     * @return array<string, mixed>
     */
     private function parseExistingCropAreas(?string $cropJson): array
@@ -438,8 +451,12 @@ class UpdateCropVariantsCommand extends Command
     }
 
     /**
-    * @param array<string, mixed> $cropVariantsConfig
-    * @param array<string, mixed> $existingCropAreas
+    * Determine which crop variants need to be generated or reset
+    *
+    * @param array<string, mixed> $cropVariantsConfig Crop variants configuration from TCA
+    * @param array<string, mixed> $existingCropAreas Existing crop areas from the stored JSON
+    * @param bool $updateRatios Whether to reset variants with mismatched ratios
+    * @param bool $forceOverride Whether to reset all variants regardless of existing values
     * @return array<string, mixed>
     */
     private function determineVariantsToGenerate(
@@ -455,17 +472,27 @@ class UpdateCropVariantsCommand extends Command
         if ($updateRatios) {
             $variantsToGenerate = [];
             foreach ($cropVariantsConfig as $variantName => $variantConfig) {
+                // Crop variant missing entirely - add with TCA default ratio
                 if (!isset($existingCropAreas[$variantName])) {
                     $variantsToGenerate[$variantName] = $variantConfig;
                     continue;
                 }
 
-                $tcaRatio = $this->extractAspectRatioFromTCA($variantConfig);
-                $existingRatio = $this->calculateAspectRatioFromCropArea($existingCropAreas[$variantName]);
+                $allowedRatios = $this->extractAllowedRatiosFromTCA($variantConfig);
 
-                if ($tcaRatio !== null && ($existingRatio === null || !$this->ratiosMatch($tcaRatio, $existingRatio))) {
-                    $variantsToGenerate[$variantName] = $variantConfig;
+                // Free-ratio variant in TCA - nothing to enforce, keep whatever the editor set
+                if (empty($allowedRatios)) {
+                    continue;
                 }
+
+                // Stored ratio still valid - preserve the editor's crop area and center point
+                $existingRatio = $this->calculateAspectRatioFromCropArea($existingCropAreas[$variantName]);
+                if ($existingRatio !== null && $this->matchesAnyRatio($existingRatio, $allowedRatios)) {
+                    continue;
+                }
+
+                // Stored ratio is gone from TCA or was never set - reset to centered default
+                $variantsToGenerate[$variantName] = $variantConfig;
             }
             return $variantsToGenerate;
         }
@@ -479,8 +506,11 @@ class UpdateCropVariantsCommand extends Command
     }
 
     /**
-    * @param array<string, mixed> $variantsToGenerate
-    * @param array<string, mixed> $existingCropAreas
+    * Generate updated crop configuration JSON for a file reference
+    *
+    * @param array<string, mixed> $variantsToGenerate Crop variants to create or reset, keyed by variant name
+    * @param array<string, mixed> $existingCropAreas Existing crop areas to preserve, keyed by variant name
+    * @param File $file File to calculate crop dimensions against
     * @throws \RuntimeException if crop configuration cannot be encoded to JSON
     */
     private function generateCropConfiguration(array $variantsToGenerate, array $existingCropAreas, File $file): string
@@ -509,31 +539,30 @@ class UpdateCropVariantsCommand extends Command
     }
 
     /**
-    * Extract aspect ratio from TCA crop variant configuration
+    * Extract all allowed aspect ratios from TCA crop variant configuration
     *
     * @param array<string, mixed> $variantConfig Crop variant configuration from TCA
-    * @return float|null Aspect ratio as decimal (e.g., 1.5 for 3:2) or null if not found
+    * @return float[] All parseable ratios; empty array means free-ratio variant
     */
-    private function extractAspectRatioFromTCA(array $variantConfig): ?float
+    private function extractAllowedRatiosFromTCA(array $variantConfig): array
     {
-        $ratioString = $variantConfig['selectedRatio'] ?? null;
-
-        if ($ratioString === null && isset($variantConfig['allowedAspectRatios'])) {
-            $ratioString = array_key_first($variantConfig['allowedAspectRatios']);
+        $ratios = [];
+        foreach (array_keys($variantConfig['allowedAspectRatios'] ?? []) as $ratioString) {
+            $ratio = $this->parseRatioString((string)$ratioString);
+            if ($ratio !== null) {
+                $ratios[] = $ratio;
+            }
         }
-
-        if ($ratioString === null) {
-            return null;
-        }
-
-        return $this->parseRatioString($ratioString);
+        return $ratios;
     }
 
     /**
     * Calculate aspect ratio from existing crop area
     *
-    * First tries to use the stored selectedRatio (more accurate).
-    * Falls back to calculating from actual crop area coordinates.
+    * Uses the stored selectedRatio string when available. For free-ratio crops
+    * (selectedRatio key e.g. "NaN") the effective ratio is calculated
+    * from the crop coordinates to detect whether the editor set proportions
+    * that match a fixed TCA ratio.
     *
     * @param array<string, mixed> $cropArea Crop area with selectedRatio, cropArea coordinates
     * @return float|null Aspect ratio as decimal or null if invalid
@@ -542,7 +571,11 @@ class UpdateCropVariantsCommand extends Command
     {
         $selectedRatio = $cropArea['selectedRatio'] ?? null;
         if ($selectedRatio !== null) {
-            return $this->parseRatioString($selectedRatio);
+            $parsed = $this->parseRatioString($selectedRatio);
+            if ($parsed !== null) {
+                return $parsed;
+            }
+            // free-ratio key detected - fall through to coordinate calculation
         }
 
         $cropAreaData = $cropArea['cropArea'] ?? null;
@@ -590,11 +623,30 @@ class UpdateCropVariantsCommand extends Command
     /**
     * Check if two aspect ratios match within a tolerance
     */
-    private function ratiosMatch(float $ratio1, float $ratio2): bool
+    private function matchesRatio(float $ratio1, float $ratio2): bool
     {
         return abs($ratio1 - $ratio2) < 0.01;
     }
 
+    /**
+    * Check if a ratio matches any entry in a list of allowed ratios within a tolerance
+    *
+    * @param float $existingRatio Ratio to check
+    * @param float[] $allowedRatios List of ratios to check against
+    */
+    private function matchesAnyRatio(float $existingRatio, array $allowedRatios): bool
+    {
+        foreach ($allowedRatios as $ratio) {
+            if ($this->matchesRatio($existingRatio, $ratio)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+    * Persist updated crop configuration JSON to sys_file_reference
+    */
     private function saveCropConfiguration(int $referenceUid, string $cropConfiguration): void
     {
         $queryBuilder = GeneralUtility::makeInstance(ConnectionPool::class)
