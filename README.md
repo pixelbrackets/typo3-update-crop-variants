@@ -6,6 +6,30 @@
 
 TYPO3 command to add missing crop variants and optionally regenerate changed ratios in file references.
 
+```
+$: vendor/bin/typo3 cleanup:updatecropvariants tt_content --dry-run
+
+Auto-detected 1 field(s) with crop variants: image
+
+=== Field: tt_content.image ===
+
+Processing 8 file reference(s)…
+
+Type: text (3 reference(s))
+
+  * desktop (16:9, 4:3)
+  * mobile (1:1)
+
+Type: textmedia (5 reference(s))
+
+  * desktop (16:9, 3:2, free)
+  * mobile (3:4, 1:1)
+  * thumbnail (1:1)
+
+Would update: 4
+Skipped: 4
+```
+
 ## Requirements
 
 - PHP >= 8.1
@@ -39,6 +63,7 @@ ratio. Only mismatched crops are overwritten with a centered default - crops tha
 the TCA ratio are preserved.
 
 The command defaults to outputting a summary only. Add `-v` to see per-item details.
+Use `--dry-run` to preview changes without writing anything to the database.
 
 ```bash
 # Scenario: Add new mobile crop variant to a specific field
@@ -56,6 +81,9 @@ vendor/bin/typo3 cleanup:updatecropvariants tt_content --updateRatios
 
 # Reset all crops to defaults (!), removing any existing crop adjustments
 vendor/bin/typo3 cleanup:updatecropvariants tt_content image --forceOverride
+
+# Preview changes without writing, show per-reference details
+vendor/bin/typo3 cleanup:updatecropvariants tt_content image --dry-run -v
 
 # Update crops in a third-party extension table
 vendor/bin/typo3 cleanup:updatecropvariants tx_news_domain_model_news

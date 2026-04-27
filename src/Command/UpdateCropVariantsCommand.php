@@ -54,7 +54,10 @@ use TYPO3\CMS\Core\Utility\GeneralUtility;
 *   # Reset all crops to defaults (!), removing any existing crop adjustments
 *   vendor/bin/typo3 cleanup:updatecropvariants tt_content image --forceOverride
 *
-*   # Update crops in news extension
+*   # Preview changes without writing, show per-reference details
+*   vendor/bin/typo3 cleanup:updatecropvariants tt_content image --dry-run -v
+*
+*   # Update crops in a third-party extension table
 *   vendor/bin/typo3 cleanup:updatecropvariants tx_news_domain_model_news
 */
 class UpdateCropVariantsCommand extends Command
@@ -84,6 +87,12 @@ class UpdateCropVariantsCommand extends Command
             InputOption::VALUE_NONE,
             'Reset all crops to defaults (!), removing any existing crop adjustments'
         );
+        $this->addOption(
+            'dry-run',
+            null,
+            InputOption::VALUE_NONE,
+            'Simulate the run without writing any changes to the database'
+        );
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -92,6 +101,12 @@ class UpdateCropVariantsCommand extends Command
         $field = $input->getArgument('field');
         $updateRatios = $input->getOption('updateRatios');
         $forceOverride = $input->getOption('forceOverride');
+        $dryRun = $input->getOption('dry-run');
+
+        if ($dryRun) {
+            $output->writeln('<comment>Dry run - no changes will be written</comment>');
+            $output->writeln('');
+        }
 
         // Auto-detect fields if none specified
         if ($field === null) {
@@ -113,14 +128,14 @@ class UpdateCropVariantsCommand extends Command
             $output->writeln('<info>=== Field: ' . $table . '.' . $fieldName . ' ===</info>');
             $output->writeln('');
 
-            $result = $this->processField($table, $fieldName, $updateRatios, $forceOverride, $output);
+            $result = $this->processField($table, $fieldName, $updateRatios, $forceOverride, $dryRun, $output);
             $totalUpdated += $result['updated'];
             $totalSkipped += $result['skipped'];
 
             $output->writeln('');
         }
 
-        $output->writeln('<info>Updated: ' . $totalUpdated . '</info>');
+        $output->writeln('<info>' . ($dryRun ? 'Would update' : 'Updated') . ': ' . $totalUpdated . '</info>');
         $output->writeln('Skipped: ' . $totalSkipped);
 
         return Command::SUCCESS;
@@ -133,11 +148,12 @@ class UpdateCropVariantsCommand extends Command
     * @param string $field Field name
     * @param bool $updateRatios Whether to reset variants with mismatched ratios
     * @param bool $forceOverride Whether to reset all variants regardless of existing values
+    * @param bool $dryRun Whether to skip writing changes to the database
     * @param OutputInterface $output Console output
     * @return array<string, int>
     * @throws Exception
     */
-    private function processField(string $table, string $field, bool $updateRatios, bool $forceOverride, OutputInterface $output): array
+    private function processField(string $table, string $field, bool $updateRatios, bool $forceOverride, bool $dryRun, OutputInterface $output): array
     {
         $fileReferences = $this->getFileReferences($table, $field);
         $output->writeln('Processing ' . count($fileReferences) . ' file reference(s)…');
@@ -182,6 +198,7 @@ class UpdateCropVariantsCommand extends Command
                     $cropVariantsConfig,
                     $updateRatios,
                     $forceOverride,
+                    $dryRun,
                     $output
                 );
 
@@ -380,6 +397,7 @@ class UpdateCropVariantsCommand extends Command
     * @param array<string, mixed> $cropVariantsConfig Crop variants configuration from TCA
     * @param bool $updateRatios Whether to reset variants with mismatched ratios
     * @param bool $forceOverride Whether to reset all variants regardless of existing values
+    * @param bool $dryRun Whether to skip writing changes to the database
     * @param OutputInterface $output Console output
     */
     private function updateFileReference(
@@ -387,6 +405,7 @@ class UpdateCropVariantsCommand extends Command
         array $cropVariantsConfig,
         bool $updateRatios,
         bool $forceOverride,
+        bool $dryRun,
         OutputInterface $output
     ): bool {
         $file = $this->getFile($reference);
@@ -417,7 +436,9 @@ class UpdateCropVariantsCommand extends Command
             $file
         );
 
-        $this->saveCropConfiguration($reference['uid'], $updatedCropConfiguration);
+        if (!$dryRun) {
+            $this->saveCropConfiguration($reference['uid'], $updatedCropConfiguration);
+        }
 
         if ($output->isVerbose()) {
             foreach ($variantsToGenerate as $variantName => $variantConfig) {
