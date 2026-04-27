@@ -110,22 +110,18 @@ class UpdateCropVariantsCommand extends Command
         $totalSkipped = 0;
 
         foreach ($fields as $fieldName) {
-            if (count($fields) > 1) {
-                $output->writeln('<info>=== Processing field: ' . $fieldName . ' ===</info>');
-            }
+            $output->writeln('<info>=== Field: ' . $table . '.' . $fieldName . ' ===</info>');
+            $output->writeln('');
 
             $result = $this->processField($table, $fieldName, $updateRatios, $forceOverride, $output);
             $totalUpdated += $result['updated'];
             $totalSkipped += $result['skipped'];
 
-            if (count($fields) > 1) {
-                $output->writeln('');
-            }
+            $output->writeln('');
         }
 
-        $output->writeln('');
-        $output->writeln('<info>Total Updated: ' . $totalUpdated . '</info>');
-        $output->writeln('Total Skipped: ' . $totalSkipped);
+        $output->writeln('<info>Updated: ' . $totalUpdated . '</info>');
+        $output->writeln('Skipped: ' . $totalSkipped);
 
         return Command::SUCCESS;
     }
@@ -147,7 +143,6 @@ class UpdateCropVariantsCommand extends Command
         $output->writeln('Processing ' . count($fileReferences) . ' file reference(s)…');
 
         $referencesByType = $this->groupReferencesByType($fileReferences, $table);
-        $output->writeln('Found ' . count($referencesByType) . ' type(s) with different crop variants');
 
         $updatedCount = 0;
         $skippedCount = 0;
@@ -156,13 +151,30 @@ class UpdateCropVariantsCommand extends Command
             $TCAType = $type !== '' ? (string)$type : null;
             $cropVariantsConfig = $this->getCropVariantsFromTCAForType($table, $field, $TCAType);
             if ($cropVariantsConfig === null) {
-                $output->writeln('<comment>No crop variants found for ' . $table . '.' . $field . ($type ? ' (type: ' . $type . ')' : '') . ' - skipping ' . count($references) . ' reference(s)</comment>');
+                $output->writeln('');
+                $output->writeln('Type: ' . ($type ?: 'default') . ' (' . count($references) . ' reference(s))');
+                $output->writeln('');
+                $output->writeln('<comment>  No crop variants configured - skipping</comment>');
                 $skippedCount += count($references);
                 continue;
             }
 
             $output->writeln('');
-            $output->writeln('Type: ' . ($type ?: 'default') . ' (' . count($cropVariantsConfig) . ' crop variant(s), ' . count($references) . ' reference(s))');
+            $output->writeln('Type: ' . ($type ?: 'default') . ' (' . count($references) . ' reference(s))');
+            $output->writeln('');
+
+            // Crop variants summary
+            foreach ($cropVariantsConfig as $variantName => $variantConfig) {
+                $ratios = [];
+                foreach (array_keys($variantConfig['allowedAspectRatios'] ?? []) as $ratioKey) {
+                    $ratios[] = str_contains((string)$ratioKey, ':') ? (string)$ratioKey : 'free';
+                }
+                $output->writeln('  * ' . $variantName . ' (' . implode(', ', $ratios ?: ['free']) . ')');
+            }
+
+            if ($output->isVerbose()) {
+                $output->writeln('');
+            }
 
             foreach ($references as $reference) {
                 $result = $this->updateFileReference(
@@ -408,7 +420,11 @@ class UpdateCropVariantsCommand extends Command
         $this->saveCropConfiguration($reference['uid'], $updatedCropConfiguration);
 
         if ($output->isVerbose()) {
-            $output->writeln('<info>  #' . $reference['uid'] . ' - updated (' . count($variantsToGenerate) . ' variant(s))</info>');
+            foreach ($variantsToGenerate as $variantName => $variantConfig) {
+                $action = isset($existingCropAreas[$variantName]) ? 'reset' : 'add';
+                $ratio = $this->getDisplayRatio($variantConfig);
+                $output->writeln('<info>  #' . $reference['uid'] . ' - variant "' . $variantName . '": ' . $action . ' (ratio ' . $ratio . ')</info>');
+            }
         }
 
         return true;
@@ -642,6 +658,25 @@ class UpdateCropVariantsCommand extends Command
             }
         }
         return false;
+    }
+
+    /**
+    * Resolve a human-readable ratio label from a TCA crop variant config
+    *
+    * @param array<string, mixed> $variantConfig
+    */
+    private function getDisplayRatio(array $variantConfig): string
+    {
+        $selected = $variantConfig['selectedRatio'] ?? null;
+        if ($selected !== null && str_contains((string)$selected, ':')) {
+            return (string)$selected;
+        }
+        foreach (array_keys($variantConfig['allowedAspectRatios'] ?? []) as $key) {
+            if (str_contains((string)$key, ':')) {
+                return (string)$key;
+            }
+        }
+        return 'free';
     }
 
     /**
