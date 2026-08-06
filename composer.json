@@ -21,6 +21,9 @@
         "roave/security-advisories": "dev-latest",
         "saschaegerer/phpstan-typo3": "^1.0 || ^2.0 || ^3.0"
     },
+    "suggest": {
+        "derhansen/processed-images-cleaner": "Clean up stale processed images left behind after crop variants are updated"
+    },
     "autoload": {
         "psr-4": {
             "Pixelbrackets\\UpdateCropVariants\\": "src/"

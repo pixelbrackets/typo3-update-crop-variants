@@ -95,6 +95,25 @@ changes what does not yet match the TCA configuration.
 
 Only the `--forceOverride` flag is destructive and not safe for unsupervised execution.
 
+## Related
+
+Updating crop variants does not remove processed image files from the filesystem which had been
+generated under the old crop configuration. They stay orphaned. To avoid purging the complete
+processed images directory, you may use the package
+[derhansen/processed-images-cleaner](https://packagist.org/packages/derhansen/processed-images-cleaner)
+to purge selected stale processed image files:
+
+```bash
+# Scenario: The "mobile" crop variant was removed from TCA
+# Remove all processed images that were generated for it
+vendor/bin/typo3 cleanup:processedimages --config cropVariant=mobile
+
+# Scenario: The "desktop" variant ratio changed from 3:2 to 16:9
+# Run this in batches of 500 right after the TCA change, before anything
+# regenerates a correct 16:9 file under the same variant name and gets removed too
+vendor/bin/typo3 cleanup:processedimages --config cropVariant=desktop --limit=500 --dry-run
+```
+
 ## Source
 
 https://gitlab.com/pixelbrackets/typo3-update-crop-variants/
